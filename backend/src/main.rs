@@ -37,5 +37,33 @@ async fn main() {
         .expect("Failed to bind to port");
 
     tracing::info!("Server running on 0.0.0.0:{}", config.server_port);
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
+        .await
+        .unwrap();
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c().await.ok();
+    };
+
+    #[cfg(unix)]
+    let sigterm = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .unwrap()
+            .recv()
+            .await;
+    };
+
+    #[cfg(unix)]
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = sigterm => {},
+    }
+
+    #[cfg(not(unix))]
+    ctrl_c.await;
+
+    tracing::info!("shutdown signal received");
 }
