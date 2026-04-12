@@ -1,28 +1,41 @@
-use axum::{routing::get, Router};
-use sqlx::postgres::PgPoolOptions;
+pub mod config;
+pub mod db;
+pub mod error;
+pub mod handlers;
+pub mod middleware;
+pub mod models;
+pub mod routes;
+pub mod state;
+
+use state::AppState;
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
 
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    tracing_subscriber::fmt().with_env_filter("info").init();
 
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&database_url)
-        .await
-        .expect("Failed to connect to database");
+    let config = config::Config::from_env();
+    let pool = db::create_pool(&config.database_url);
 
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
         .expect("Failed to run migrations");
 
-    println!("Migrations complete");
+    tracing::info!("Migrations complete");
 
-    let app = Router::new().route("/", get(|| async { "Hello, World!" }));
+    let state = AppState {
+        pool,
+        jwt_secret: config.jwt_secret,
+    };
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
-    println!("Server running on http://0.0.0.0:8080");
+    let app = routes::create_router(state);
+
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", config.server_port))
+        .await
+        .expect("Failed to bind to port");
+
+    tracing::info!("Server running on 0.0.0.0:{}", config.server_port);
     axum::serve(listener, app).await.unwrap();
 }
