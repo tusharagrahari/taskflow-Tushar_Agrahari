@@ -24,6 +24,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       JWT_SECRET: ${JWT_SECRET}
       SERVER_PORT: ${SERVER_PORT}
+      RUST_LOG: ${RUST_LOG:-info}
     depends_on:
       db:
         condition: service_healthy

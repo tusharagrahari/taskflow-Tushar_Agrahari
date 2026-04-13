@@ -1,7 +1,8 @@
 target/
 CLAUDE.md
 .remember/
-README.md
 learnings.md
 .env
 .vscode/
+requirements.md
+roadmap.md

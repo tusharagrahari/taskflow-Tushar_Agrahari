@@ -1,15 +1,18 @@
 use axum::{
+    Json,
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
 };
 use uuid::Uuid;
 
 use crate::{
     error::{AppError, Result},
     middleware::auth::AuthUser,
-    models::task::{CreateTaskRequest, Task, TaskFilters, TaskPriority, TaskStatus, UpdateTaskRequest},
+    models::{
+        PaginatedResponse,
+        task::{CreateTaskRequest, Task, TaskFilters, TaskPriority, TaskStatus, UpdateTaskRequest},
+    },
     state::AppState,
 };
 
@@ -19,6 +22,24 @@ pub async fn list_tasks(
     Path(project_id): Path<Uuid>,
     Query(filters): Query<TaskFilters>,
 ) -> Result<impl IntoResponse> {
+    let page = filters.page.unwrap_or(1).max(1);
+    let limit = filters.limit.unwrap_or(20).clamp(1, 100);
+    let offset = (page - 1) * limit;
+
+    let total: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(*)
+           FROM tasks
+           WHERE project_id = $1
+             AND ($2::task_status IS NULL OR status = $2)
+             AND ($3::uuid IS NULL OR assignee_id = $3)"#,
+        project_id,
+        filters.status as Option<TaskStatus>,
+        filters.assignee
+    )
+    .fetch_one(&state.pool)
+    .await?
+    .unwrap_or(0);
+
     let tasks = sqlx::query_as!(
         Task,
         r#"SELECT
@@ -31,15 +52,23 @@ pub async fn list_tasks(
            WHERE project_id = $1
              AND ($2::task_status IS NULL OR status = $2)
              AND ($3::uuid IS NULL OR assignee_id = $3)
-           ORDER BY created_at DESC"#,
+           ORDER BY created_at DESC
+           LIMIT $4 OFFSET $5"#,
         project_id,
         filters.status as Option<TaskStatus>,
-        filters.assignee
+        filters.assignee,
+        limit,
+        offset
     )
     .fetch_all(&state.pool)
     .await?;
 
-    Ok(Json(tasks))
+    Ok(Json(PaginatedResponse {
+        data: tasks,
+        total,
+        page,
+        limit,
+    }))
 }
 
 pub async fn create_task(
@@ -48,11 +77,19 @@ pub async fn create_task(
     Path(project_id): Path<Uuid>,
     Json(payload): Json<CreateTaskRequest>,
 ) -> Result<impl IntoResponse> {
+    // Validate before any I/O.
     if payload.title.trim().is_empty() {
-        return Err(AppError::Validation(
-            std::collections::HashMap::from([("title".to_string(), "is required".to_string())]),
-        ));
+        return Err(AppError::Validation(std::collections::HashMap::from([(
+            "title".to_string(),
+            "is required".to_string(),
+        )])));
     }
+
+    // Verify project exists before attempting insert — otherwise the FK
+    // constraint failure maps to a misleading 409 instead of 404.
+    sqlx::query!("SELECT id FROM projects WHERE id = $1", project_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     let task = sqlx::query_as!(
         Task,
@@ -80,10 +117,27 @@ pub async fn create_task(
 
 pub async fn update_task(
     State(state): State<AppState>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateTaskRequest>,
 ) -> Result<impl IntoResponse> {
+    let row = sqlx::query!(
+        r#"SELECT t.creator_id, t.assignee_id, p.owner_id AS project_owner_id
+           FROM tasks t
+           JOIN projects p ON t.project_id = p.id
+           WHERE t.id = $1"#,
+        id
+    )
+    .fetch_one(&state.pool)
+    .await?;
+
+    if auth.user_id != row.creator_id
+        && auth.user_id != row.project_owner_id
+        && Some(auth.user_id) != row.assignee_id
+    {
+        return Err(AppError::Forbidden);
+    }
+
     let task = sqlx::query_as!(
         Task,
         r#"UPDATE tasks

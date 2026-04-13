@@ -1,16 +1,34 @@
-use crate::{
-    middleware::auth::Claims,
-    models::user::{LoginRequest, LoginResponse},
-};
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use std::collections::HashMap;
+use uuid::Uuid;
 
 use crate::{
     error::{AppError, Result},
-    models::user::{RegisterRequest, User, UserResponse},
+    middleware::auth::Claims,
+    models::user::{LoginRequest, LoginResponse, RegisterRequest, User, UserResponse},
     state::AppState,
 };
+
+fn make_token(user_id: Uuid, email: &str, secret: &str) -> Result<String> {
+    let exp = chrono::Utc::now()
+        .checked_add_signed(chrono::Duration::hours(24))
+        .ok_or_else(|| AppError::Internal("time overflow".to_string()))?
+        .timestamp() as usize;
+
+    let claims = Claims {
+        sub: user_id.to_string(),
+        email: email.to_string(),
+        exp,
+    };
+
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|e| AppError::Internal(e.to_string()))
+}
 
 pub async fn register(
     State(state): State<AppState>,
@@ -24,6 +42,8 @@ pub async fn register(
     }
     if payload.email.trim().is_empty() {
         fields.insert("email".to_string(), "is required".to_string());
+    } else if !payload.email.contains('@') {
+        fields.insert("email".to_string(), "must be a valid email".to_string());
     }
     if payload.password.len() < 8 {
         fields.insert(
@@ -51,9 +71,23 @@ pub async fn register(
         password_hash
     )
     .fetch_one(&state.pool)
-    .await?;
+    .await
+    .map_err(|e| match e {
+        sqlx::Error::Database(ref db_err) if db_err.constraint().is_some() => {
+            AppError::Conflict("email already exists".to_string())
+        }
+        _ => AppError::from(e),
+    })?;
 
-    Ok((StatusCode::CREATED, Json(UserResponse::from(user))))
+    let token = make_token(user.id, &user.email, &state.jwt_secret)?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(LoginResponse {
+            token,
+            user: UserResponse::from(user),
+        }),
+    ))
 }
 
 pub async fn login(
@@ -96,23 +130,7 @@ pub async fn login(
     }
 
     // Step 4: Generate JWT
-    let exp = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::hours(24))
-        .unwrap()
-        .timestamp() as usize;
-
-    let claims = Claims {
-        sub: user.id.to_string(),
-        email: user.email.clone(),
-        exp,
-    };
-
-    let token = encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(state.jwt_secret.as_bytes()),
-    )
-    .map_err(|e| AppError::Internal(e.to_string()))?;
+    let token = make_token(user.id, &user.email, &state.jwt_secret)?;
 
     Ok(Json(LoginResponse {
         token,

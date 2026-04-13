@@ -1,4 +1,4 @@
-use crate::error::AppError;
+use crate::{error::AppError, state::AppState};
 use axum::{extract::FromRequestParts, http::request::Parts};
 use jsonwebtoken::{DecodingKey, Validation, decode};
 use serde::{Deserialize, Serialize};
@@ -17,13 +17,10 @@ pub struct Claims {
     pub exp: usize, // expiry as unix timestamp
 }
 
-impl<S> FromRequestParts<S> for AuthUser
-where
-    S: Send + Sync,
-{
+impl FromRequestParts<AppState> for AuthUser {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
         let auth_header = parts
             .headers
             .get("Authorization")
@@ -34,11 +31,9 @@ where
             .strip_prefix("Bearer ")
             .ok_or(AppError::Unauthorized)?;
 
-        let jwt_secret = std::env::var("JWT_SECRET").map_err(|_| AppError::Unauthorized)?;
-
         let token_data = decode::<Claims>(
             token,
-            &DecodingKey::from_secret(jwt_secret.as_bytes()),
+            &DecodingKey::from_secret(state.jwt_secret.as_bytes()),
             &Validation::default(),
         )
         .map_err(|_| AppError::Unauthorized)?;

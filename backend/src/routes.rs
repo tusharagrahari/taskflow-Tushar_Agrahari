@@ -1,7 +1,8 @@
 use axum::{
     Router,
-    routing::{delete, get, patch, post},
+    routing::{get, patch, post},
 };
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
     handlers::{auth, project, task},
@@ -13,6 +14,8 @@ pub fn create_router(state: AppState) -> Router {
         .nest("/auth", auth_routes())
         .nest("/projects", project_routes())
         .nest("/tasks", task_routes())
+        .layer(CorsLayer::permissive())
+        .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
@@ -41,8 +44,5 @@ fn project_routes() -> Router<AppState> {
 }
 
 fn task_routes() -> Router<AppState> {
-    Router::new().route(
-        "/{id}",
-        patch(task::update_task).delete(task::delete_task),
-    )
+    Router::new().route("/{id}", patch(task::update_task).delete(task::delete_task))
 }

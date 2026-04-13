@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, sqlx::Type, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "task_status", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
@@ -12,7 +12,7 @@ pub enum TaskStatus {
     Done,
 }
 
-#[derive(Debug, Clone, sqlx::Type, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, sqlx::Type, Serialize, Deserialize)]
 #[sqlx(type_name = "task_priority", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum TaskPriority {
@@ -59,4 +59,6 @@ pub struct UpdateTaskRequest {
 pub struct TaskFilters {
     pub status: Option<TaskStatus>,
     pub assignee: Option<Uuid>,
+    pub page: Option<i64>,
+    pub limit: Option<i64>,
 }

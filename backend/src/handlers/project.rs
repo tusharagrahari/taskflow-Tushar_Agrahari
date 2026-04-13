@@ -1,12 +1,16 @@
 use crate::{
     error::{AppError, Result},
     middleware::auth::AuthUser,
-    models::project::{CreateProjectRequest, Project, UpdateProjectRequest},
+    models::{
+        PaginatedResponse,
+        project::{CreateProjectRequest, Project, ProjectFilters, ProjectWithTasks, UpdateProjectRequest},
+        task::{Task, TaskPriority, TaskStatus},
+    },
     state::AppState,
 };
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
 };
@@ -15,20 +19,44 @@ use uuid::Uuid;
 pub async fn list_projects(
     State(state): State<AppState>,
     auth: AuthUser,
+    Query(filters): Query<ProjectFilters>,
 ) -> Result<impl IntoResponse> {
+    let page = filters.page.unwrap_or(1).max(1);
+    let limit = filters.limit.unwrap_or(20).clamp(1, 100);
+    let offset = (page - 1) * limit;
+
+    let total: i64 = sqlx::query_scalar!(
+        r#"SELECT COUNT(DISTINCT p.id)
+           FROM projects p
+           LEFT JOIN tasks t ON t.project_id = p.id
+           WHERE p.owner_id = $1 OR t.assignee_id = $1"#,
+        auth.user_id
+    )
+    .fetch_one(&state.pool)
+    .await?
+    .unwrap_or(0);
+
     let projects = sqlx::query_as!(
         Project,
         r#"SELECT DISTINCT p.*
            FROM projects p
            LEFT JOIN tasks t ON t.project_id = p.id
            WHERE p.owner_id = $1 OR t.assignee_id = $1
-           ORDER BY p.created_at DESC"#,
-        auth.user_id
+           ORDER BY p.created_at DESC
+           LIMIT $2 OFFSET $3"#,
+        auth.user_id,
+        limit,
+        offset
     )
     .fetch_all(&state.pool)
     .await?;
 
-    Ok(Json(projects))
+    Ok(Json(PaginatedResponse {
+        data: projects,
+        total,
+        page,
+        limit,
+    }))
 }
 
 pub async fn create_project(
@@ -65,7 +93,23 @@ pub async fn get_project(
         .fetch_one(&state.pool)
         .await?;
 
-    Ok(Json(project))
+    let tasks = sqlx::query_as!(
+        Task,
+        r#"SELECT
+               id, title, description,
+               status AS "status: TaskStatus",
+               priority AS "priority: TaskPriority",
+               project_id, assignee_id, creator_id, due_date,
+               created_at, updated_at
+           FROM tasks
+           WHERE project_id = $1
+           ORDER BY created_at DESC"#,
+        id
+    )
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(ProjectWithTasks { project, tasks }))
 }
 
 pub async fn update_project(

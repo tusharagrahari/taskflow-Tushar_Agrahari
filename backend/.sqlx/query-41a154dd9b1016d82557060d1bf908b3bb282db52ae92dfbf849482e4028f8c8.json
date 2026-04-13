@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n               id, title, description,\n               status AS \"status: TaskStatus\",\n               priority AS \"priority: TaskPriority\",\n               project_id, assignee_id, creator_id, due_date,\n               created_at, updated_at\n           FROM tasks\n           WHERE project_id = $1\n             AND ($2::task_status IS NULL OR status = $2)\n             AND ($3::uuid IS NULL OR assignee_id = $3)\n           ORDER BY created_at DESC",
+  "query": "SELECT\n               id, title, description,\n               status AS \"status: TaskStatus\",\n               priority AS \"priority: TaskPriority\",\n               project_id, assignee_id, creator_id, due_date,\n               created_at, updated_at\n           FROM tasks\n           WHERE project_id = $1\n             AND ($2::task_status IS NULL OR status = $2)\n             AND ($3::uuid IS NULL OR assignee_id = $3)\n           ORDER BY created_at DESC\n           LIMIT $4 OFFSET $5",
   "describe": {
     "columns": [
       {
@@ -96,7 +96,9 @@
             }
           }
         },
-        "Uuid"
+        "Uuid",
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -113,5 +115,5 @@
       false
     ]
   },
-  "hash": "d6b4a66174338732b88f4554cfc871a747d4c1e3e30af50d7253deca4d11ee22"
+  "hash": "41a154dd9b1016d82557060d1bf908b3bb282db52ae92dfbf849482e4028f8c8"
 }

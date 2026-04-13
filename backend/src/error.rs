@@ -42,13 +42,16 @@ impl From<sqlx::Error> for AppError {
     fn from(e: sqlx::Error) -> Self {
         match e {
             sqlx::Error::RowNotFound => AppError::NotFound,
-            sqlx::Error::Database(db_err) => {
-                if db_err.constraint().is_some() {
-                    AppError::Conflict("resource already exists".to_string())
-                } else {
-                    AppError::Internal(db_err.to_string())
-                }
-            }
+            sqlx::Error::Database(db_err) => match db_err.code().as_deref() {
+                // Unique constraint violation → 409
+                Some("23505") => AppError::Conflict("resource already exists".to_string()),
+                // Foreign key violation → 400 (caller sent a reference to a non-existent row)
+                Some("23503") => AppError::Validation(std::collections::HashMap::from([(
+                    "assignee_id".to_string(),
+                    "referenced user does not exist".to_string(),
+                )])),
+                _ => AppError::Internal(db_err.to_string()),
+            },
             _ => AppError::Internal(e.to_string()),
         }
     }

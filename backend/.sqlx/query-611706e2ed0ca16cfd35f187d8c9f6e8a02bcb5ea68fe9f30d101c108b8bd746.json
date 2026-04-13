@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(DISTINCT p.id)\n           FROM projects p\n           LEFT JOIN tasks t ON t.project_id = p.id\n           WHERE p.owner_id = $1 OR t.assignee_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "611706e2ed0ca16cfd35f187d8c9f6e8a02bcb5ea68fe9f30d101c108b8bd746"
+}
