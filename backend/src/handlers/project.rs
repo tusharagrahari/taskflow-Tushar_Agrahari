@@ -3,7 +3,9 @@ use crate::{
     middleware::auth::AuthUser,
     models::{
         PaginatedResponse,
-        project::{CreateProjectRequest, Project, ProjectFilters, ProjectWithTasks, UpdateProjectRequest},
+        project::{
+            CreateProjectRequest, Project, ProjectFilters, ProjectWithTasks, UpdateProjectRequest,
+        },
         task::{Task, TaskPriority, TaskStatus},
     },
     state::AppState,
